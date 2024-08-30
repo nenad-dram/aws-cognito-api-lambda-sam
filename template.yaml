@@ -1,0 +1,152 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+
+Globals:
+  Function:
+    Timeout: 20
+    MemorySize: 512
+    Runtime: java21
+    Architectures:
+      - x86_64
+    Environment: 
+      Variables:
+        COGNITO_POOL_APP_CLIENT_ID: !Ref CognitoUserPoolClient
+        COGNITO_POOL_APP_CLIENT_SECRET: !GetAtt CognitoUserPoolClient.ClientSecret
+
+Resources:
+  UserAPIGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: dev
+      Name: user-api-gateway
+
+  RegisterUserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: RegisterUser
+      CodeUri: .
+      Handler: com.endyary.function.handler.RegisterUserHandler::handleRequest
+      Events:
+        CreateUser:
+          Type: Api
+          Properties:
+            Path: /register
+            Method: post
+            RestApiId: !Ref UserAPIGateway
+
+  ConfirmUserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ConfirmUser
+      CodeUri: .
+      Handler: com.endyary.function.handler.ConfirmUserHandler::handleRequest
+      Events:
+        ConfirmUser:
+          Type: Api
+          Properties:
+            Path: /confirm
+            Method: post
+            RestApiId: !Ref UserAPIGateway
+
+  LoginUserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: LoginUser
+      CodeUri: .
+      Handler: com.endyary.function.handler.LoginUserHandler::handleRequest
+      Events:
+        LoginUser:
+          Type: Api
+          Properties:
+            Path: /login
+            Method: post
+            RestApiId: !Ref UserAPIGateway
+
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: app-user-pool
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+      UsernameAttributes:
+        - email
+      MfaConfiguration: 'OFF'
+      EmailVerificationMessage: 'The verification code is {####}'
+      EmailVerificationSubject: 'Verify your new account'
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Required: true
+          Mutable: false
+        - Name: name
+          AttributeDataType: String
+          Required: true
+          Mutable: true
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+
+  CognitoUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: UserPoolClient
+      UserPoolId: !Ref CognitoUserPool
+      GenerateSecret: true
+      RefreshTokenValidity: 1
+      AccessTokenValidity: 1
+      IdTokenValidity: 1
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+
+  HelloAPIGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: dev
+      Name: hello-api-gateway
+      Auth:
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt CognitoUserPool.Arn
+            Identity:
+              Header: Authorization
+        DefaultAuthorizer: CognitoAuthorizer
+
+  HelloFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: SayHello
+      CodeUri: .
+      Handler: com.endyary.function.handler.HelloHandler::handleRequest
+      Events:
+        LoginUser:
+          Type: Api
+          Properties:
+            Path: /hello
+            Method: get
+            RestApiId: !Ref HelloAPIGateway
+
+Outputs:
+  CreateUserEndpoint:
+    Description: Register User Endpoint
+    Value: !Sub https://${UserAPIGateway}.execute-api.${AWS::Region}.amazonaws.com/dev/register
+  
+  ConfirmUserEndpoint:
+    Description: Confirm User Endpoint
+    Value: !Sub https://${UserAPIGateway}.execute-api.${AWS::Region}.amazonaws.com/dev/confirm
+  
+  LoginUseryEndpoint:
+    Description: Login User Endpoint
+    Value: !Sub https://${UserAPIGateway}.execute-api.${AWS::Region}.amazonaws.com/dev/login
+
+  SayHelloEndpoint:
+    Description: Say Hello Endpoint
+    Value: !Sub https://${HelloAPIGateway}.execute-api.${AWS::Region}.amazonaws.com/dev/hello
